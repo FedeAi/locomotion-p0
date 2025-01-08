@@ -1,6 +1,7 @@
 from typing import Dict, Tuple, Union
 
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 from gymnasium import utils
 from gymnasium.envs.mujoco import MujocoEnv
@@ -228,10 +229,10 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
     def __init__(
         self,
-        xml_file: str = "./mujoco_menagerie/unitree_go2/scene.xml",
+        xml_file: str = "./mujoco_menagerie/unitree_go1/scene.xml",
         frame_skip: int = 25,
         default_camera_config: Dict[str, Union[float, int]] = DEFAULT_CAMERA_CONFIG,
-        forward_reward_weight: float = 100,
+        forward_reward_weight: float = 500,
         ctrl_cost_weight: float = 0.005,
         contact_cost_weight: float = 5e-4,
         healthy_reward: float = 1.0,
@@ -301,127 +302,182 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             "render_fps": int(np.round(1.0 / self.dt)),
         }
 
-        obs_size = self.data.qpos.size + self.data.qvel.size
-        obs_size -= 2 * exclude_current_positions_from_observation
-        obs_size += self.data.cfrc_ext[1:].size * include_cfrc_ext_in_observation
+        obs_size = 39
 
-        self.observation_space = Box(
-            low=-np.inf, high=np.inf, shape=(obs_size,), dtype=np.float64
-        )
+        self.observation_space = Box(low=-np.inf, high=np.inf, shape=(obs_size,), dtype=np.float64)
 
-        self.observation_structure = {
-            "skipped_qpos": 2 * exclude_current_positions_from_observation,
-            "qpos": self.data.qpos.size
-            - 2 * exclude_current_positions_from_observation,
-            "qvel": self.data.qvel.size,
-            "cfrc_ext": self.data.cfrc_ext[1:].size * include_cfrc_ext_in_observation,
-        }
+        # self.observation_structure = {
+        #     "skipped_qpos": 2 * exclude_current_positions_from_observation,
+        #     "qpos": self.data.qpos.size
+        #     - 2 * exclude_current_positions_from_observation,
+        #     "qvel": self.data.qvel.size,
+        #     "cfrc_ext": self.data.cfrc_ext[1:].size * include_cfrc_ext_in_observation,
+        # }
 
-    @property
-    def healthy_reward(self):
-        return self.is_healthy * self._healthy_reward
+        self._last_action = np.zeros(self.action_space.shape)
 
-    def control_cost(self, action):
-        control_cost = self._ctrl_cost_weight * np.sum(np.square(action))
-        return control_cost
 
-    @property
-    def contact_forces(self):
-        raw_contact_forces = self.data.cfrc_ext
-        min_value, max_value = self._contact_force_range
-        contact_forces = np.clip(raw_contact_forces, min_value, max_value)
-        return contact_forces
+# TODO: 
+        # 1 CLIPPARE AZIONI TRA -1 E 1
+        # 2 AGGIUNGERE TERMINE COSTO POTENZA
 
-    @property
-    def contact_cost(self):
-        contact_cost = self._contact_cost_weight * np.sum(
-            np.square(self.contact_forces)
-        )
-        return contact_cost
 
-    @property
-    def is_healthy(self):
-        state = self.state_vector()
-        min_z, max_z = self._healthy_z_range
-        is_healthy = np.isfinite(state).all() and min_z <= state[2] <= max_z
-        return is_healthy
+    def _get_obs(self):
 
-    def step(self, action):
-        xy_position_before = self.data.body(self._main_body).xpos[:2].copy()
-        self.do_simulation(action, self.frame_skip)
-        xy_position_after = self.data.body(self._main_body).xpos[:2].copy()
+        # get qpos and qvel
+        position = self.data.qpos.flatten() # 19 x 1 [x, y, z, quat1..quat4, q1...q12]
+        velocity = self.data.qvel.flatten() # 18 x 1 [Vx, Vy, Vz, Wx, Wy, Wz, q1_dot...q12_dot]
 
-        xy_velocity = (xy_position_after - xy_position_before) / self.dt
-        x_velocity, y_velocity = xy_velocity
+        # Get the quaternion of the main body
+        quaternion = self.data.xquat[self._main_body]
 
-        observation = self._get_obs()
-        reward, reward_info = self._get_rew(x_velocity, action)
-        terminated = (not self.is_healthy) and self._terminate_when_unhealthy
-        info = {
-            "x_position": self.data.qpos[0],
-            "y_position": self.data.qpos[1],
-            "distance_from_origin": np.linalg.norm(self.data.qpos[0:2], ord=2),
-            "x_velocity": x_velocity,
-            "y_velocity": y_velocity,
-            **reward_info,
-        }
+        # Convert quaternion to roll, pitch, and yaw
+        rotation = R.from_quat(quaternion)
+        roll, pitch, yaw = rotation.as_euler('xyz', degrees=False)
 
-        if self.render_mode == "human":
-            self.render()
-        # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
-        return observation, reward, terminated, False, info
+        # get last action
+        last_action = self._last_action.flatten() # TODO: salvare ultime 3 azioni
 
-    def _get_rew(self, x_velocity: float, action):
-        forward_reward = x_velocity * self._forward_reward_weight
-        healthy_reward = self.healthy_reward
+        return np.concatenate((position[7:], velocity[6:], [roll, pitch], [position[2]], last_action)) # 12 joint pos + 12 joint_vel + roll + pitch + z + actions(t-3:t) 
+
+
+    def healthy_reward(self, obs):
+        return self._healthy_reward if self.is_healthy(obs) else 0.0
+
+    def is_healthy(self, obs):
+        
+        roll_th = 0.4 # rad
+        pitch_th = 0.2 # rad
+        z_min_th = 0.15 # m
+
+        if (abs(obs[24])>roll_th or abs(obs[25])>pitch_th or abs(obs[26])<z_min_th):
+            return False # dead
+        else:
+            return True # alive
+
+    # @property
+    # def contact_forces(self):
+    #     raw_contact_forces = self.data.cfrc_ext
+    #     min_value, max_value = self._contact_force_range
+    #     contact_forces = np.clip(raw_contact_forces, min_value, max_value)
+    #     return contact_forces
+
+    # @property
+    # def contact_cost(self):
+    #     contact_cost = self._contact_cost_weight * np.sum(
+    #         np.square(self.contact_forces)
+    #     )
+    #     return contact_cost
+
+    # def control_cost(self, action):
+    #     control_cost = self._ctrl_cost_weight * np.sum(np.square(action))
+    #     return control_cost
+
+    def _get_rew(self, observation, action):
+
+        forward_reward = self.data.qvel[0] * self._forward_reward_weight
+        healthy_reward = self.healthy_reward(observation)
         rewards = forward_reward + healthy_reward
 
-        ctrl_cost = self.control_cost(action)
-        contact_cost = self.contact_cost
-        costs = ctrl_cost + contact_cost
+        # ctrl_cost = self.control_cost(action)
+        # contact_cost = self.contact_cost
+        # costs = ctrl_cost + contact_cost
+        costs = 0.0
 
         reward = rewards - costs
 
         reward_info = {
             "reward_forward": forward_reward,
-            "reward_ctrl": -ctrl_cost,
-            "reward_contact": -contact_cost,
+            "reward_ctrl": 0.0, # -ctrl_cost,
+            "reward_contact": 0.0, # -contact_cost,
             "reward_survive": healthy_reward,
         }
 
         return reward, reward_info
 
-    def _get_obs(self):
-        position = self.data.qpos.flatten()
-        velocity = self.data.qvel.flatten()
 
-        if self._exclude_current_positions_from_observation:
-            position = position[2:]
+    def step(self, action):
 
-        if self._include_cfrc_ext_in_observation:
-            contact_force = self.contact_forces[1:].flatten()
-            return np.concatenate((position, velocity, contact_force))
-        else:
-            return np.concatenate((position, velocity))
+        self.do_simulation(action, self.frame_skip)
+        
+        observation = self._get_obs()
+
+        reward, reward_info = self._get_rew(observation, action)
+
+        terminated = (not self.is_healthy(observation)) and self._terminate_when_unhealthy
+
+        info = {
+            "x_position": self.data.qpos[0],
+            "y_position": self.data.qpos[1],
+            "distance_from_origin": np.linalg.norm(self.data.qpos[0:2], ord=2),
+            "x_velocity": self.data.qvel[0],
+            "y_velocity": self.data.qvel[1],
+            **reward_info,
+        }
+
+        if self.render_mode == "human":
+            self.render()
+
+        # save last action
+        self._last_action = action.copy()
+
+        # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
+
+        return observation, reward, terminated, False, info
+
+
+    # def step(self, action):
+
+    #     xy_position_before = self.data.body(self._main_body).xpos[:2].copy()
+    #     self.do_simulation(action, self.frame_skip)
+    #     xy_position_after = self.data.body(self._main_body).xpos[:2].copy()
+
+    #     xy_velocity = (xy_position_after - xy_position_before) / self.dt
+    #     x_velocity, y_velocity = xy_velocity
+
+    #     observation = self._get_obs()
+
+    #     reward, reward_info = self._get_rew(x_velocity, observation, action)
+
+    #     terminated = (not self.is_healthy(observation)) and self._terminate_when_unhealthy
+
+    #     info = {
+    #         "x_position": self.data.qpos[0],
+    #         "y_position": self.data.qpos[1],
+    #         "distance_from_origin": np.linalg.norm(self.data.qpos[0:2], ord=2),
+    #         "x_velocity": x_velocity,
+    #         "y_velocity": y_velocity,
+    #         **reward_info,
+    #     }
+
+    #     if self.render_mode == "human":
+    #         self.render()
+
+    #     # save last action
+    #     self._last_action = action.copy()
+
+    #     # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
+
+    #     return observation, reward, terminated, False, info
+    
 
     def reset_model(self):
+
         noise_low = -self._reset_noise_scale
         noise_high = self._reset_noise_scale
 
-        qpos = self.init_qpos + self.np_random.uniform(
-            low=noise_low, high=noise_high, size=self.model.nq
-        )
-        qvel = (
-            self.init_qvel
-            + self._reset_noise_scale * self.np_random.standard_normal(self.model.nv)
-        )
+        qpos = self.init_qpos + self.np_random.uniform(low=noise_low, high=noise_high, size=self.model.nq)
+        qvel = (self.init_qvel + self._reset_noise_scale * self.np_random.standard_normal(self.model.nv))
+
         self.set_state(qpos, qvel)
 
         observation = self._get_obs()
 
         return observation
 
+
     def _get_reset_info(self):
+
         return {
             "x_position": self.data.qpos[0],
             "y_position": self.data.qpos[1],

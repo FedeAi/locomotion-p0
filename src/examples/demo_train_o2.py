@@ -46,11 +46,9 @@ class TensorboardCallback(BaseCallback):
             self.logger.record("env/reward_contact", info.get("reward_contact", 0))
             self.logger.record("env/reward_survive", info.get("reward_survive", 0))
         return True
-# Create the environment
-env = make_vec_env(lambda: AntEnv(render_mode=None), n_envs=1)
 
 class CheckpointCallback(BaseCallback):
-    def __init__(self, save_freq=20000, save_path="./checkpoints", verbose=1):
+    def __init__(self, save_freq=50000, save_path="./checkpoints", verbose=1):
         super(CheckpointCallback, self).__init__(verbose)
         self.save_freq = save_freq
         self.save_path = save_path
@@ -69,14 +67,17 @@ class CheckpointCallback(BaseCallback):
         return True
 
 
+# Create the environment
+env = make_vec_env(lambda: AntEnv(render_mode=None), n_envs=1)
+
 # Initialize the PPO model
-model = PPO("MlpPolicy", env, verbose=1, tensorboard_log="./logs/ppo_o2_tensorboard", policy_kwargs=dict(net_arch=[128, 128, 128]))
+model = PPO("MlpPolicy", env, verbose=1, learning_rate=2e-4, tensorboard_log="./logs/ppo_o2_tensorboard", policy_kwargs=dict(net_arch=[128, 256, 128]))
 # Reload a model if there is a saved one, make sure to set the environment correctly (it is saved as ppo_ant.zip)
 if os.path.exists("ppo_ant.zip"):
     model = PPO.load("ppo_ant", env=env)
 
 # Train the model with the visualization callback
-visualize_callback = VisualizeCallback(check_freq=20000)
+visualize_callback = VisualizeCallback(check_freq=10000)
 tensorboard_callback = TensorboardCallback()
 checkpoint_callback = CheckpointCallback()
 
