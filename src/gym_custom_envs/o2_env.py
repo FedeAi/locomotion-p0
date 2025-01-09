@@ -232,7 +232,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         xml_file: str = "./mujoco_menagerie/unitree_go1/scene.xml",
         frame_skip: int = 25,
         default_camera_config: Dict[str, Union[float, int]] = DEFAULT_CAMERA_CONFIG,
-        forward_reward_weight: float = 500,
+        forward_reward_weight: float = 50,
         ctrl_cost_weight: float = 0.005,
         contact_cost_weight: float = 5e-4,
         healthy_reward: float = 1.0,
@@ -306,19 +306,17 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         self.observation_space = Box(low=-np.inf, high=np.inf, shape=(obs_size,), dtype=np.float64)
 
-        # self.observation_structure = {
-        #     "skipped_qpos": 2 * exclude_current_positions_from_observation,
-        #     "qpos": self.data.qpos.size
-        #     - 2 * exclude_current_positions_from_observation,
-        #     "qvel": self.data.qvel.size,
-        #     "cfrc_ext": self.data.cfrc_ext[1:].size * include_cfrc_ext_in_observation,
-        # }
-
         self._last_action = np.zeros(self.action_space.shape)
+
+        # Get the actuator control range
+        bounds = self.model.actuator_ctrlrange.copy().astype(np.float32)
+        
+        # Get low and high bounds
+        self._low_bound_actions, self._high_bound_actions = bounds.T
 
 
 # TODO: 
-        # 1 CLIPPARE AZIONI TRA -1 E 1
+        # 1 INDAGARE RESET POSITION E RANDOM AGGIUNTO
         # 2 AGGIUNGERE TERMINE COSTO POTENZA
 
 
@@ -398,13 +396,16 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
     def step(self, action):
 
-        self.do_simulation(action, self.frame_skip)
+        # Scale the action from [-1, 1] to the original control range
+        action_rescaled = (action + 1) / 2 * (self._high_bound_actions - self._low_bound_actions) + self._low_bound_actions  
+
+        self.do_simulation(action_rescaled, self.frame_skip)
         
         observation = self._get_obs()
 
         reward, reward_info = self._get_rew(observation, action)
 
-        terminated = (not self.is_healthy(observation)) and self._terminate_when_unhealthy
+        terminated = (not self.is_healthy(observation)) 
 
         info = {
             "x_position": self.data.qpos[0],
@@ -415,50 +416,12 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             **reward_info,
         }
 
-        if self.render_mode == "human":
-            self.render()
-
         # save last action
         self._last_action = action.copy()
 
         # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
 
         return observation, reward, terminated, False, info
-
-
-    # def step(self, action):
-
-    #     xy_position_before = self.data.body(self._main_body).xpos[:2].copy()
-    #     self.do_simulation(action, self.frame_skip)
-    #     xy_position_after = self.data.body(self._main_body).xpos[:2].copy()
-
-    #     xy_velocity = (xy_position_after - xy_position_before) / self.dt
-    #     x_velocity, y_velocity = xy_velocity
-
-    #     observation = self._get_obs()
-
-    #     reward, reward_info = self._get_rew(x_velocity, observation, action)
-
-    #     terminated = (not self.is_healthy(observation)) and self._terminate_when_unhealthy
-
-    #     info = {
-    #         "x_position": self.data.qpos[0],
-    #         "y_position": self.data.qpos[1],
-    #         "distance_from_origin": np.linalg.norm(self.data.qpos[0:2], ord=2),
-    #         "x_velocity": x_velocity,
-    #         "y_velocity": y_velocity,
-    #         **reward_info,
-    #     }
-
-    #     if self.render_mode == "human":
-    #         self.render()
-
-    #     # save last action
-    #     self._last_action = action.copy()
-
-    #     # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
-
-    #     return observation, reward, terminated, False, info
     
 
     def reset_model(self):
@@ -468,6 +431,9 @@ class AntEnv(MujocoEnv, utils.EzPickle):
 
         qpos = self.init_qpos + self.np_random.uniform(low=noise_low, high=noise_high, size=self.model.nq)
         qvel = (self.init_qvel + self._reset_noise_scale * self.np_random.standard_normal(self.model.nv))
+
+        print("qpos_init: ", qpos)
+        print("qvel_init: ", qvel)
 
         self.set_state(qpos, qvel)
 

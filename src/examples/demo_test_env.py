@@ -4,9 +4,15 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 import gymnasium as gym
 from gym_custom_envs.o2_env import AntEnv
+from stable_baselines3.common.env_util import make_vec_env
+# from gymnasium.wrappers import TimeLimit
 
-# env = gym.make('o2-v0', render_mode='human')
+
 env = AntEnv(render_mode='human')
+# env = TimeLimit(AntEnv(render_mode="human"), max_episode_steps=100)
+# env = make_vec_env(lambda: TimeLimit(AntEnv(render_mode=None), max_episode_steps=100), n_envs=1)
+# env = make_vec_env(lambda: AntEnv(render_mode="human"), n_envs=1) 
+
 env.reset()
 
 # env.model: accedo a dati del modello statici (numero giunti, DoF, ..)
@@ -14,14 +20,14 @@ env.reset()
 
 # Test the environment
 obs = env.reset()
-for _ in range(10):
+for _ in range(100):
     action = env.action_space.sample()
     obs, reward, terminated, truncated, info = env.step(action)
     env.render()
-    print(f"Numero di motori: {env.model.na}")
     if terminated:
         obs = env.reset()
 env.close()
+
 
 
 # Struttura che descrive i dettagli di ciascun contatto attualmente attivo nella simulazione.

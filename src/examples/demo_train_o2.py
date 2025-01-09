@@ -7,6 +7,8 @@ from gym_custom_envs.o2_env import AntEnv
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
+from gymnasium.wrappers import TimeLimit
+
 
 class VisualizeCallback(BaseCallback):
     def __init__(self, check_freq, verbose=1):
@@ -67,11 +69,15 @@ class CheckpointCallback(BaseCallback):
         return True
 
 
+## TRAINING ##
+    
 # Create the environment
-env = make_vec_env(lambda: AntEnv(render_mode=None), n_envs=1)
+# env = make_vec_env(lambda: AntEnv(render_mode=None), n_envs=1)
+env = make_vec_env(lambda: TimeLimit(AntEnv(render_mode=None), max_episode_steps=1000), n_envs=1)
 
 # Initialize the PPO model
 model = PPO("MlpPolicy", env, verbose=1, learning_rate=2e-4, tensorboard_log="./logs/ppo_o2_tensorboard", policy_kwargs=dict(net_arch=[128, 256, 128]))
+
 # Reload a model if there is a saved one, make sure to set the environment correctly (it is saved as ppo_ant.zip)
 if os.path.exists("ppo_ant.zip"):
     model = PPO.load("ppo_ant", env=env)
@@ -83,13 +89,13 @@ checkpoint_callback = CheckpointCallback()
 
 model.learn(total_timesteps=5000000, callback=[visualize_callback, tensorboard_callback, checkpoint_callback])
 
-
 # Save the model
 model.save("ppo_ant")
 
+## TESTING ##
+
 # Load the model
 model = PPO.load("ppo_ant")
-
 
 # Test the trained model
 render_env = make_vec_env(lambda: AntEnv(render_mode="human"), n_envs=1)
