@@ -232,10 +232,12 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         xml_file: str = "./mujoco_menagerie/unitree_go1/scene.xml",
         frame_skip: int = 25,
         default_camera_config: Dict[str, Union[float, int]] = DEFAULT_CAMERA_CONFIG,
-        forward_reward_weight: float = 50,
+        forward_reward_weight: float = 40,
+        healthy_reward: float = 1.0,
+        pwr_cost_weight: float = 0.001, 
+        roll_pitch_weight: float = 1.5,
         ctrl_cost_weight: float = 0.005,
         contact_cost_weight: float = 5e-4,
-        healthy_reward: float = 1.0,
         main_body: Union[int, str] = 1,
         terminate_when_unhealthy: bool = True,
         healthy_z_range: Tuple[float, float] = (0.22, 10.0),  # set to avoid sampling steps where the robot has fallen or jumped too high
@@ -251,9 +253,11 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             frame_skip,
             default_camera_config,
             forward_reward_weight,
+            healthy_reward,
+            pwr_cost_weight,
+            roll_pitch_weight,
             ctrl_cost_weight,
             contact_cost_weight,
-            healthy_reward,
             main_body,
             terminate_when_unhealthy,
             healthy_z_range,
@@ -265,10 +269,13 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         )
 
         self._forward_reward_weight = forward_reward_weight
+        self._healthy_reward = healthy_reward
+
+        self._pwr_cost_weight = pwr_cost_weight 
+        self._roll_pitch_weight = roll_pitch_weight
         self._ctrl_cost_weight = ctrl_cost_weight
         self._contact_cost_weight = contact_cost_weight
 
-        self._healthy_reward = healthy_reward
         self._terminate_when_unhealthy = terminate_when_unhealthy
         self._healthy_z_range = healthy_z_range
 
@@ -314,10 +321,8 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         # Get low and high bounds
         self._low_bound_actions, self._high_bound_actions = bounds.T
 
+        self._q_dot_prev = None
 
-# TODO: 
-        # 1 INDAGARE RESET POSITION E RANDOM AGGIUNTO
-        # 2 AGGIUNGERE TERMINE COSTO POTENZA
 
 
     def _get_obs(self):
@@ -348,11 +353,37 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         pitch_th = 0.2 # rad
         z_min_th = 0.15 # m
 
-        if (abs(obs[24])>roll_th or abs(obs[25])>pitch_th or abs(obs[26])<z_min_th):
+        # print(obs[24], obs[25], obs[26])
+
+        # note: roll in the initial position is: pi
+        if (np.pi-abs(obs[24])>roll_th or abs(obs[25])>pitch_th or abs(obs[26])<z_min_th):
             return False # dead
         else:
             return True # alive
 
+    def power_cost(self):
+        
+        # Access the current velocity (q_dot) from observation or environment state
+        q_dot = self.data.qvel[6:]  
+
+        # Initialize previous velocity for the first step
+        if self._q_dot_prev is None:
+            self._q_dot_prev = q_dot.copy()
+
+        # Compute the change in velocity: |q_dot(t) - q_dot(t-1)|
+        velocity_change = np.abs(q_dot - self._q_dot_prev)
+
+        # Compute power: torque * |q_dot(t) - q_dot(t-1)|
+        torque = self.data.actuator_force  # Measured torques applied at each joint  
+
+        # Sum over all joints
+        power_penalty = np.sum(np.abs(torque * velocity_change))  
+
+        # Update the previous velocity for next step
+        self._q_dot_prev = q_dot.copy()
+
+        return power_penalty
+    
     # @property
     # def contact_forces(self):
     #     raw_contact_forces = self.data.cfrc_ext
@@ -371,27 +402,24 @@ class AntEnv(MujocoEnv, utils.EzPickle):
     #     control_cost = self._ctrl_cost_weight * np.sum(np.square(action))
     #     return control_cost
 
-    def _get_rew(self, observation, action):
+    def _get_rew(self, observation):
 
         forward_reward = self.data.qvel[0] * self._forward_reward_weight
         healthy_reward = self.healthy_reward(observation)
-        rewards = forward_reward + healthy_reward
 
-        # ctrl_cost = self.control_cost(action)
-        # contact_cost = self.contact_cost
-        # costs = ctrl_cost + contact_cost
-        costs = 0.0
+        pwr_cost = self.power_cost() * self._pwr_cost_weight
+        roll_pitch_cost = ((np.pi-abs(observation[24]))**2 + (observation[25])**2)* self._roll_pitch_weight 
 
-        reward = rewards - costs
+        rewards = forward_reward + healthy_reward - pwr_cost - roll_pitch_cost
 
         reward_info = {
             "reward_forward": forward_reward,
-            "reward_ctrl": 0.0, # -ctrl_cost,
-            "reward_contact": 0.0, # -contact_cost,
             "reward_survive": healthy_reward,
+            "power_cost": -pwr_cost,
+            "roll_pitch_cost": -roll_pitch_cost, 
         }
 
-        return reward, reward_info
+        return rewards, reward_info
 
 
     def step(self, action):
@@ -403,9 +431,9 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         
         observation = self._get_obs()
 
-        reward, reward_info = self._get_rew(observation, action)
+        reward, reward_info = self._get_rew(observation)
 
-        terminated = (not self.is_healthy(observation)) 
+        terminated = not self.is_healthy(observation)
 
         info = {
             "x_position": self.data.qpos[0],
@@ -432,12 +460,20 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         qpos = self.init_qpos + self.np_random.uniform(low=noise_low, high=noise_high, size=self.model.nq)
         qvel = (self.init_qvel + self._reset_noise_scale * self.np_random.standard_normal(self.model.nv))
 
-        print("qpos_init: ", qpos)
-        print("qvel_init: ", qvel)
+        # give physical sence to orientation, since adding noise can corrupt it
+        index_quat_start = 3
+        quaternion = qpos[index_quat_start:index_quat_start+4]
+        qpos[index_quat_start:index_quat_start+4] = quaternion / np.linalg.norm(quaternion)  # normalize quaternions
+
+        # print("qpos_init: ", qpos)
+        # print("qvel_init: ", qvel)
 
         self.set_state(qpos, qvel)
 
         observation = self._get_obs()
+
+        # reset states when episode finishes
+        self._q_dot_prev = None
 
         return observation
 

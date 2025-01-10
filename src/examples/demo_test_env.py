@@ -20,7 +20,7 @@ env.reset()
 
 # Test the environment
 obs = env.reset()
-for _ in range(100):
+for _ in range(10):
     action = env.action_space.sample()
     obs, reward, terminated, truncated, info = env.step(action)
     env.render()
@@ -50,8 +50,13 @@ torque = env.data.cfrc_ext[body_id, 3:]  # Momenti (torque)
 
 # Itera su tutti i contatti per ottenere le forze
 for i in range(env.data.ncon):  # Numero di contatti
-    force = env.contact_forces[i]
+    force = env.contact_forces[i]  # force = env.data.contact_force(i)
     print(f"Contatto {i}: Forza = {force}")
+
+
+# Stampa le forze degli attuatori
+for i, actuator_force in enumerate(env.data.actuator_force):
+    print(f"Attuatore {i}: Forza = {actuator_force}")
 
 
 # Coppie/forze generate dagli attuatori per muovere i giunti.
