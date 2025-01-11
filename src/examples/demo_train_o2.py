@@ -4,7 +4,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 import gymnasium as gym
 from gym_custom_envs.o2_env import AntEnv
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback
 from gymnasium.wrappers import TimeLimit
@@ -75,22 +75,36 @@ class CheckpointCallback(BaseCallback):
 # env = make_vec_env(lambda: AntEnv(render_mode=None), n_envs=1)
 env = make_vec_env(lambda: TimeLimit(AntEnv(render_mode=None), max_episode_steps=1000), n_envs=1)
 
-# # Initialize the PPO model
-# model = PPO("MlpPolicy", env, verbose=1, learning_rate=2e-4, tensorboard_log="./logs/ppo_o2_tensorboard", policy_kwargs=dict(net_arch=[128, 256, 128]))
+# Initialize the PPO model
+# model = PPO("MlpPolicy", env, verbose=1, learning_rate=2e-4, tensorboard_log="./logs/ppo_o2_tensorboard", policy_kwargs=dict(net_arch=[128, 100]))
 
-# # Reload a model if there is a saved one, make sure to set the environment correctly (it is saved as ppo_ant.zip)
-# if os.path.exists("ppo_ant.zip"):
-#     model = PPO.load("ppo_ant", env=env)
+model = SAC(
+    "MlpPolicy",
+    env,
+    verbose=1,
+    learning_rate=2e-4,
+    tensorboard_log="./logs/sac_o2_tensorboard",
+    policy_kwargs=dict(net_arch=[128, 100]),
+    buffer_size=1000000,  # Dimensione del replay buffer
+    batch_size=256,       # Dimensione del batch per l'update
+    train_freq=1,         # Frequenza degli aggiornamenti della rete (ogni passo di simulazione)
+    gradient_steps=1,     # Gradiente calcolato per ogni train_freq
+    ent_coef="auto",      # Coefficiente di entropia adattivo
+)
 
-# # Train the model with the visualization callback
-# visualize_callback = VisualizeCallback(check_freq=10000)
-# tensorboard_callback = TensorboardCallback()
-# checkpoint_callback = CheckpointCallback()
+# Reload a model if there is a saved one, make sure to set the environment correctly (it is saved as ppo_ant.zip)
+if os.path.exists("ppo_ant.zip"):
+    model = PPO.load("ppo_ant", env=env)
 
-# model.learn(total_timesteps=5000000, callback=[visualize_callback, tensorboard_callback, checkpoint_callback])
+# Train the model with the visualization callback
+visualize_callback = VisualizeCallback(check_freq=10000)
+tensorboard_callback = TensorboardCallback()
+checkpoint_callback = CheckpointCallback()
 
-# # Save the model
-# model.save("ppo_ant")
+model.learn(total_timesteps=5000000, callback=[visualize_callback, tensorboard_callback, checkpoint_callback])
+
+# Save the model
+model.save("ppo_ant")
 
 ## TESTING ##
 

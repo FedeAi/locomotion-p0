@@ -230,11 +230,12 @@ class AntEnv(MujocoEnv, utils.EzPickle):
     def __init__(
         self,
         xml_file: str = "./mujoco_menagerie/unitree_go1/scene.xml",
+        # xml_file: str = "./mujoco_menagerie/anybotics_anymal_c/scene.xml",
         frame_skip: int = 25,
         default_camera_config: Dict[str, Union[float, int]] = DEFAULT_CAMERA_CONFIG,
         forward_reward_weight: float = 40,
         healthy_reward: float = 1.0,
-        pwr_cost_weight: float = 0.001, 
+        pwr_cost_weight: float = 0.0005, 
         roll_pitch_weight: float = 1.5,
         ctrl_cost_weight: float = 0.005,
         contact_cost_weight: float = 5e-4,
@@ -309,7 +310,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             "render_fps": int(np.round(1.0 / self.dt)),
         }
 
-        obs_size = 39
+        obs_size = 40
 
         self.observation_space = Box(low=-np.inf, high=np.inf, shape=(obs_size,), dtype=np.float64)
 
@@ -321,8 +322,6 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         # Get low and high bounds
         self._low_bound_actions, self._high_bound_actions = bounds.T
 
-        self._q_dot_prev = None
-
 
 
     def _get_obs(self):
@@ -332,16 +331,21 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         velocity = self.data.qvel.flatten() # 18 x 1 [Vx, Vy, Vz, Wx, Wy, Wz, q1_dot...q12_dot]
 
         # Get the quaternion of the main body
-        quaternion = self.data.xquat[self._main_body]
+        mujoco_quat = self.data.xquat[self._main_body]
 
         # Convert quaternion to roll, pitch, and yaw
-        rotation = R.from_quat(quaternion)
+        scipy_quat = np.concatenate([mujoco_quat[1:] ,[mujoco_quat[0]]])
+        rotation = R.from_quat(scipy_quat)
         roll, pitch, yaw = rotation.as_euler('xyz', degrees=False)
+
+        # roll_dot, pitch_dot
+        roll_dot = velocity[4]
+        pitch_dot = velocity[5]
 
         # get last action
         last_action = self._last_action.flatten() # TODO: salvare ultime 3 azioni
 
-        return np.concatenate((position[7:], velocity[6:], [roll, pitch], [position[2]], last_action)) # 12 joint pos + 12 joint_vel + roll + pitch + z + actions(t-3:t) 
+        return np.concatenate((position[7:], velocity[6:], [roll, pitch], [roll_dot, pitch_dot], last_action)) # 12 joint pos + 12 joint_vel + roll + pitch + roll_dot + pitch_dot + actions(t-3:t) 
 
 
     def healthy_reward(self, obs):
@@ -351,12 +355,10 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         
         roll_th = 0.4 # rad
         pitch_th = 0.2 # rad
-        z_min_th = 0.15 # m
 
-        # print(obs[24], obs[25], obs[26])
+        # print(obs[24], obs[25])
 
-        # note: roll in the initial position is: pi
-        if (np.pi-abs(obs[24])>roll_th or abs(obs[25])>pitch_th or abs(obs[26])<z_min_th):
+        if (abs(obs[24])>roll_th or abs(obs[25])>pitch_th):
             return False # dead
         else:
             return True # alive
@@ -366,23 +368,36 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         # Access the current velocity (q_dot) from observation or environment state
         q_dot = self.data.qvel[6:]  
 
-        # Initialize previous velocity for the first step
-        if self._q_dot_prev is None:
-            self._q_dot_prev = q_dot.copy()
-
-        # Compute the change in velocity: |q_dot(t) - q_dot(t-1)|
-        velocity_change = np.abs(q_dot - self._q_dot_prev)
-
-        # Compute power: torque * |q_dot(t) - q_dot(t-1)|
+        # Get torque
         torque = self.data.actuator_force  # Measured torques applied at each joint  
 
         # Sum over all joints
-        power_penalty = np.sum(np.abs(torque * velocity_change))  
-
-        # Update the previous velocity for next step
-        self._q_dot_prev = q_dot.copy()
+        power_penalty = np.sum(np.abs(torque * q_dot))  
 
         return power_penalty
+    
+    # def power_cost(self):
+        
+    #     # Access the current velocity (q_dot) from observation or environment state
+    #     q_dot = self.data.qvel[6:]  
+
+    #     # Initialize previous velocity for the first step
+    #     if self._q_dot_prev is None:
+    #         self._q_dot_prev = q_dot.copy()
+
+    #     # Compute the change in velocity: |q_dot(t) - q_dot(t-1)|
+    #     velocity_change = np.abs(q_dot - self._q_dot_prev)
+
+    #     # Compute power: torque * |q_dot(t) - q_dot(t-1)|
+    #     torque = self.data.actuator_force  # Measured torques applied at each joint  
+
+    #     # Sum over all joints
+    #     power_penalty = np.sum(np.abs(torque * velocity_change))  
+
+    #     # Update the previous velocity for next step
+    #     self._q_dot_prev = q_dot.copy()
+
+    #     return power_penalty
     
     # @property
     # def contact_forces(self):
@@ -408,7 +423,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         healthy_reward = self.healthy_reward(observation)
 
         pwr_cost = self.power_cost() * self._pwr_cost_weight
-        roll_pitch_cost = ((np.pi-abs(observation[24]))**2 + (observation[25])**2)* self._roll_pitch_weight 
+        roll_pitch_cost = ((observation[24])**2 + (observation[25])**2)* self._roll_pitch_weight 
 
         rewards = forward_reward + healthy_reward - pwr_cost - roll_pitch_cost
 
@@ -471,9 +486,6 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self.set_state(qpos, qvel)
 
         observation = self._get_obs()
-
-        # reset states when episode finishes
-        self._q_dot_prev = None
 
         return observation
 
