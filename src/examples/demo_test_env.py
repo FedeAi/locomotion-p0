@@ -1,11 +1,18 @@
 import sys
 import os
+import numpy as np
+
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'src')))
 
 import gymnasium as gym
 from gym_custom_envs.o2_env import AntEnv
 from stable_baselines3.common.env_util import make_vec_env
 # from gymnasium.wrappers import TimeLimit
+
+# sim init positions
+q_start_sim = np.array([0.0, 0.9, -1.8, 0.0, 0.9, -1.8, 0.0, 0.9, -1.8, 0.0, 0.9, -1.8], dtype=np.float32)
+q_residuals_start_sim = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
 
 env = AntEnv(render_mode='human')
@@ -20,7 +27,7 @@ env.reset()
 
 # Test the environment
 obs = env.reset()
-for _ in range(100):
+for _ in range(500):
     action = env.action_space.sample()
     obs, reward, terminated, truncated, info = env.step(action)
     env.render()

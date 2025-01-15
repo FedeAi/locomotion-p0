@@ -14,7 +14,7 @@ mujoco.mj_resetData(model, data)
 print(mujoco.__version__)
 
 
-duration = 3.8  # (seconds)
+duration = 10.0  # (seconds)
 framerate = 60  # (Hz)
 timestep = 1 / framerate  # (seconds)
 
@@ -45,6 +45,9 @@ print(f"Numero di motori: {model.na}")
 print(f"Numero di variabili di controllo: {len(data.ctrl)}")
 print(f"Numero di azioni di controllo: {model.nu}")
 print(f"Numero di giunti totali: {model.njnt}")
+
+# sim init positions
+q_start_sim = np.array([0.0, 0.9, -1.8, 0.0, 0.9, -1.8, 0.0, 0.9, -1.8, 0.0, 0.9, -1.8], dtype=np.float32)
 
 
 # Simulate and display video.
