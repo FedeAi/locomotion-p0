@@ -231,7 +231,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self,
         xml_file: str = "./mujoco_menagerie/unitree_go1/scene.xml",
         # xml_file: str = "./mujoco_menagerie/anybotics_anymal_c/scene.xml",
-        frame_skip: int = 25,
+        frame_skip: int = 10, # 25,
         default_camera_config: Dict[str, Union[float, int]] = DEFAULT_CAMERA_CONFIG,
         Vx_reward_weight: float = 10,
         Vy_reward_weight: float = 0.5,
