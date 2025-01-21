@@ -50,6 +50,7 @@ class TensorboardCallback(BaseCallback):
             self.logger.record("env/delta_action_cost", info.get("delta_action_cost", 0))
             self.logger.record("env/roll_pitch_cost", info.get("roll_pitch_cost", 0)) 
             self.logger.record("env/Vz_cost", info.get("Vz_cost", 0)) 
+            self.logger.record("env/qpos_homing_deviation_cost", info.get("qpos_homing_deviation_cost", 0))
         return True        
 
 class CheckpointCallback(BaseCallback):
@@ -79,7 +80,7 @@ class CheckpointCallback(BaseCallback):
 env = make_vec_env(lambda: TimeLimit(AntEnv(render_mode=None), max_episode_steps=1000), n_envs=1)
 
 # Initialize the PPO model
-model = PPO("MlpPolicy", env, verbose=1, learning_rate=5e-4, tensorboard_log="./logs/ppo_o2_tensorboard", policy_kwargs=dict(net_arch=[128, 256, 128]))
+model = PPO("MlpPolicy", env, verbose=1, learning_rate=5e-4, tensorboard_log="./logs/ppo_o2_tensorboard", policy_kwargs=dict(net_arch=[512, 256, 128]))
 
 # # model = SAC(
 # #     "MlpPolicy",

@@ -1,5 +1,6 @@
 gymnasium
 pandas
+scipy
 numpy
 stable-baselines3[extra]
 matplotlib==3.8.0

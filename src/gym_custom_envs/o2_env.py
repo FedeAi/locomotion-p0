@@ -233,25 +233,33 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         # xml_file: str = "./mujoco_menagerie/anybotics_anymal_c/scene.xml",
         frame_skip: int = 10, # 25,
         default_camera_config: Dict[str, Union[float, int]] = DEFAULT_CAMERA_CONFIG,
-        Vx_reward_weight: float = 10,
-        Vy_reward_weight: float = 0.5,
-        Wz_reward_weight: float = 0.5,
-        z_reward_weight: float = 0.3,
+        
+        Vx_reward_weight: float = 2.0,
+        Vy_reward_weight: float = 1.0,
+        Wz_reward_weight: float = 1.0,
+        z_reward_weight: float = 0.5,
         # healthy_reward: float = 1.0,
         pwr_cost_weight: float = 0.00005, 
         delta_action_cost_weight: float = 0.05, 
-        roll_pitch_cost_weight: float = 2,
-        Vz_cost_weight: float = 0.1,
+        roll_pitch_cost_weight: float = 2.0,
+        Vz_cost_weight: float = 1.0,
+        qpos_homing_deviation_weight: float = 0.25,
         # ctrl_cost_weight: float = 0.005,
         # contact_cost_weight: float = 5e-4,
+        
         main_body: Union[int, str] = 1,
-        terminate_when_unhealthy: bool = True,
         healthy_z_range: Tuple[float, float] = (0.22, 10.0),  # set to avoid sampling steps where the robot has fallen or jumped too high
-        contact_force_range: Tuple[float, float] = (-1.0, 1.0),
+
         reset_noise_scale_pos: float = 0.1,
         reset_noise_scale_vel: float = 0.2,
+
+
+        terminate_when_unhealthy: bool = True,
+        contact_force_range: Tuple[float, float] = (-1.0, 1.0),
         exclude_current_positions_from_observation: bool = False,
         include_cfrc_ext_in_observation: bool = False,
+
+
         **kwargs,
     ):
         utils.EzPickle.__init__(
@@ -268,6 +276,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             delta_action_cost_weight,
             roll_pitch_cost_weight,
             Vz_cost_weight,
+            qpos_homing_deviation_weight,
             # ctrl_cost_weight,
             # contact_cost_weight,
             main_body,
@@ -285,30 +294,29 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         self._Vy_reward_weight = Vy_reward_weight
         self._Wz_reward_weight = Wz_reward_weight
         self._z_reward_weight = z_reward_weight
-
         # self._healthy_reward = healthy_reward
 
         self._pwr_cost_weight = pwr_cost_weight 
         self._delta_action_cost_weight = delta_action_cost_weight
-
         self._roll_pitch_weight = roll_pitch_cost_weight
         self._Vz_cost_weight = Vz_cost_weight 
-
+        self._qpos_homing_deviation_weight = qpos_homing_deviation_weight
         # self._ctrl_cost_weight = ctrl_cost_weight
         # self._contact_cost_weight = contact_cost_weight
 
-        self._terminate_when_unhealthy = terminate_when_unhealthy
-        self._healthy_z_range = healthy_z_range
-
-        self._contact_force_range = contact_force_range
-
         self._main_body = main_body
+        self._terminate_when_unhealthy = terminate_when_unhealthy
+
+        self._healthy_z_range = healthy_z_range
 
         self._reset_noise_scale_pos = reset_noise_scale_pos
         self._reset_noise_scale_vel = reset_noise_scale_vel
 
+
+        self._contact_force_range = contact_force_range
         self._exclude_current_positions_from_observation = (exclude_current_positions_from_observation)
         self._include_cfrc_ext_in_observation = include_cfrc_ext_in_observation
+
 
         MujocoEnv.__init__(
             self,
@@ -329,23 +337,16 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             "render_fps": int(np.round(1.0 / self.dt)),
         }
 
-        obs_size = 40
+        obs_size = 42
 
         self.observation_space = Box(low=-np.inf, high=np.inf, shape=(obs_size,), dtype=np.float64)
 
         self._last_action = np.zeros(self.action_space.shape)
 
-        # Get the actuator control range
-        bounds = self.model.actuator_ctrlrange.copy().astype(np.float32)
-        
-        # Get low and high bounds
-        self._low_bound_actions, self._high_bound_actions = bounds.T
-
         self.q_start_sim = np.array([0.0, 0.9, -1.8, 0.0, 0.9, -1.8, 0.0, 0.9, -1.8, 0.0, 0.9, -1.8], dtype=np.float32)
 
         self.qpos_init_sim = np.array([0.0, 0.0, 0.27, 1.0, 0.0, 0.0, 0.0, 0.0, 0.9, -1.8, 0.0, 0.9, -1.8, 0.0, 0.9, -1.8, 0.0, 0.9, -1.8], dtype=np.float32)
         self.qvel_init_sim = np.zeros((self.model.nv), dtype=np.float32)
-
 
 
     def _get_obs(self):
@@ -362,30 +363,25 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         rotation = R.from_quat(scipy_quat)
         roll, pitch, yaw = rotation.as_euler('xyz', degrees=False)
 
-        # roll_dot, pitch_dot
-        roll_dot = velocity[3]
-        pitch_dot = velocity[4]
-
         # get last action
         last_action = self._last_action.flatten() # TODO: salvare ultime 3 azioni
 
         delta_positions = position[7:] - self.q_start_sim
 
         # return np.concatenate((position[7:], velocity[6:], [roll, pitch], [roll_dot, pitch_dot], last_action)) # 12 joint pos + 12 joint_vel + roll + pitch + roll_dot + pitch_dot + actions(t-3:t) 
-        return np.concatenate((delta_positions, velocity[6:], [roll, pitch], [roll_dot, pitch_dot], last_action)) # 12 joint pos + 12 joint_vel + roll + pitch + roll_dot + pitch_dot + actions(t-3:t) 
+        return np.concatenate((velocity[3:6], [roll, pitch, yaw], delta_positions, velocity[6:], last_action)) # Wx, Wy, Wz, r,p,y, 12 joint pos + 12 joint_vel + actions(t-3:t) 
+        
 
     def healthy_reward(self, obs):
         return self._healthy_reward if self.is_healthy(obs) else 0.0
 
     def is_healthy(self, obs):
         
-        roll_th = 0.5# rad
-        pitch_th = 0.4 # rad
+        roll_th = 0.4 # rad
+        pitch_th = 0.3 # rad
         z_min = 0.15 # m
 
-        # print(obs[24], obs[25])
-
-        if (abs(obs[24])>roll_th or abs(obs[25])>pitch_th or abs(self.data.qpos[2]) < z_min):
+        if (abs(obs[3])>roll_th or abs(obs[4])>pitch_th or abs(self.data.qpos[2]) < z_min):
             return False # dead
         else:
             return True # alive
@@ -406,7 +402,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
     def delta_action_cost(self, action):
         
         # Sum over all joints
-        delta_action_penalty = np.sum(np.abs(action - self._last_action))  
+        delta_action_penalty = np.sum(np.square(action - self._last_action))  
 
         return delta_action_penalty
 
@@ -419,12 +415,12 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         z_target = 0.3 # [m]
 
         # speed tracking
-        Vx_reward = np.exp(-abs(self.data.qvel[0] - Vx_target)) * self._Vx_reward_weight
-        Vy_reward = np.exp(-abs(self.data.qvel[1] - Vy_target)) * self._Vy_reward_weight
-        Wz_reward = np.exp(-abs(self.data.qvel[5] - Wz_target)) * self._Wz_reward_weight
+        Vx_reward = np.exp(-np.square(self.data.qvel[0] - Vx_target)) * self._Vx_reward_weight
+        Vy_reward = np.exp(-np.square(self.data.qvel[1] - Vy_target)) * self._Vy_reward_weight
+        Wz_reward = np.exp(-np.square(self.data.qvel[5] - Wz_target)) * self._Wz_reward_weight
 
         # z tracking
-        z_reward = np.exp(-abs(self.data.qpos[2] - z_target)) * self._z_reward_weight
+        z_reward = np.exp(-np.square(self.data.qpos[2] - z_target)) * self._z_reward_weight
 
         # healthy_reward = self.healthy_reward(observation)
 
@@ -435,11 +431,14 @@ class AntEnv(MujocoEnv, utils.EzPickle):
         delta_action_cost = self.delta_action_cost(action) * self._delta_action_cost_weight
 
         # stability cost
-        roll_pitch_cost = ((observation[24])**2 + (observation[25])**2)* self._roll_pitch_weight 
-        Vz_cost = ((self.data.qvel[2])**2)* self._Vz_cost_weight 
+        roll_pitch_cost = (np.square(observation[3]) + np.square(observation[4]))* self._roll_pitch_weight 
+        Vz_cost = np.square(self.data.qvel[2]) * self._Vz_cost_weight 
+
+        # deviation from nominal cost
+        qpos_homing_deviation_cost = (np.sum(np.square(self.data.qpos[7:] - self.q_start_sim)))* self._qpos_homing_deviation_weight 
 
         # total reward
-        rewards = Vx_reward + Vy_reward + Wz_reward + z_reward - delta_action_cost - roll_pitch_cost - Vz_cost
+        rewards = Vx_reward + Vy_reward + Wz_reward + z_reward - delta_action_cost - roll_pitch_cost - Vz_cost - qpos_homing_deviation_cost
 
         reward_info = {
             "Vx_reward": Vx_reward,
@@ -449,6 +448,7 @@ class AntEnv(MujocoEnv, utils.EzPickle):
             "delta_action_cost": -delta_action_cost,
             "roll_pitch_cost": -roll_pitch_cost, 
             "Vz_cost": -Vz_cost, 
+            "qpos_homing_deviation_cost": -qpos_homing_deviation_cost, 
         }
 
         return rewards, reward_info
