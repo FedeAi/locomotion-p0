@@ -10,6 +10,7 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from github_env import Go1MujocoEnv
 from tqdm import tqdm
+import numpy as np
 
 MODEL_DIR = "models"
 LOG_DIR = "logs"
@@ -25,31 +26,49 @@ class VisualizeCallback(BaseCallback):
         self.check_freq = check_freq
 
     def _on_step(self) -> bool:
+
+        # Check if the current step is a multiple of the frequency
         if self.n_calls % self.check_freq == 0:
-            self.env  = make_vec_env(lambda: Go1MujocoEnv(render_mode="human"), n_envs=1)
+
+            print(f"[VisualizeCallback] Rendering at step {self.n_calls}")
+
+            # Create a single environment with rendering enabled
+            env = Go1MujocoEnv(render_mode="human")
             
-            obs = self.env.reset()
-            for _ in range(200):
-                action, _states = model.predict(obs)
-                result = self.env.step(action)
-                if len(result) == 5:
-                    obs, reward, terminated, truncated, info = result
-                else:
-                    obs, reward, done, info = result
-                    terminated, truncated = done, done
-                self.env.render()
+            # Reset the environment
+            obs, _ = env.reset()
+
+            # Run the model for a few steps to visualize its performance
+            for _ in range(300):  # Reduced to 200 steps for faster visualization
+                action, _states = self.model.predict(obs)
+                result = env.step(action)
+
+                obs, reward, terminated, truncated, info = result
+
+                # if len(result) == 5:
+                #     obs, reward, terminated, truncated, info = result
+                # else:
+                #     obs, reward, done, info = result
+                #     terminated, truncated = done, done
+
+                # Render the environment
+                env.render()
+
+                # Reset if episode ends
                 if terminated or truncated:
-                    obs = self.env.reset()
-            
-            self.env.close()  # Close the viewer window specifically
-        
+                    obs, _ = env.reset()
+
+            # Close the environment after visualization
+            env.close()
+
         return True
+
+
     
 
 
-
-
 def train(args):
+
     vec_env = make_vec_env(
         Go1MujocoEnv,
         env_kwargs={"ctrl_type": args.ctrl_type},
@@ -59,18 +78,11 @@ def train(args):
     )
 
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
-    if args.run_name is None:
-        run_name = f"{train_time}"
-    else:
-        run_name = f"{train_time}-{args.run_name}"
-
+    run_name = f"{train_time}-{args.run_name}" if args.run_name else train_time
     model_path = f"{MODEL_DIR}/{run_name}"
-    print(
-        f"Training on {args.num_parallel_envs} parallel training environments and saving models to '{model_path}'"
-    )
 
-    # Evaluate the model every eval_frequency for 5 episodes and save
-    # it if it's improved over the previous best model.
+    print(f"Training on {args.num_parallel_envs} parallel training environments and saving models to '{model_path}'")
+
     eval_callback = EvalCallback(
         vec_env,
         best_model_save_path=model_path,
@@ -82,28 +94,32 @@ def train(args):
     )
 
     if args.model_path is not None:
-        model = PPO.load(
-            path=args.model_path, env=vec_env, verbose=1, tensorboard_log=LOG_DIR
-        )
+        model = PPO.load(path=args.model_path, env=vec_env, verbose=1, tensorboard_log=LOG_DIR)
     else:
-        # Default PPO model hyper-parameters give good results
-        # TODO: Use dynamic learning rate
         model = PPO("MlpPolicy", vec_env, verbose=1, tensorboard_log=LOG_DIR)
 
-    visualize_callback = VisualizeCallback(check_freq=25000)
-    
+    visualize_callback = VisualizeCallback(check_freq=5000)
+
+    # Combine callbacks
+    callbacks = [eval_callback, visualize_callback]
+
     model.learn(
         total_timesteps=args.total_timesteps,
         reset_num_timesteps=False,
         progress_bar=True,
         tb_log_name=run_name,
-        callback=eval_callback,
+        callback=callbacks,
     )
+
     # Save final model
     model.save(f"{model_path}/final_model")
 
 
+
+
+
 def test(args):
+
     model_path = Path(args.model_path)
 
     if not args.record_test_episodes:
@@ -132,20 +148,27 @@ def test(args):
     num_episodes = args.num_test_episodes
     total_reward = 0
     total_length = 0
-    for _ in tqdm(range(num_episodes)):
-        obs, _ = env.reset()
-        env.render()
 
+    for _ in tqdm(range(num_episodes)):
+
+        obs, _ = env.reset()
+        
         ep_len = 0
         ep_reward = 0
+
         while True:
-            action, _ = model.predict(obs, deterministic=True)
+            
+            action, _ = model.predict(obs)
             obs, reward, terminated, truncated, info = env.step(action)
+            env.render()
+
+            # print("distance_from_origin", np.linalg.norm(env.data.qpos[0:2], ord=2))
+
             ep_reward += reward
             ep_len += 1
 
-            # Slow down the rendering
-            time.sleep(inter_frame_sleep)
+            # # Slow down the rendering
+            # time.sleep(inter_frame_sleep)
 
             if terminated or truncated:
                 print(f"{ep_len=}  {ep_reward=}")
@@ -154,55 +177,71 @@ def test(args):
         total_length += ep_len
         total_reward += ep_reward
 
-    print(
-        f"Avg episode reward: {total_reward / num_episodes}, avg episode length: {total_length / num_episodes}"
-    )
+    # Close the environment after visualization
+    env.close()
+        
+    print(f"Avg episode reward: {total_reward / num_episodes}, avg episode length: {total_length / num_episodes}")
+
+
+
 
 
 if __name__ == "__main__":
+
+
     parser = argparse.ArgumentParser()
+
+
     parser.add_argument("--run", type=str, required=True, choices=["train", "test"])
+
     parser.add_argument(
         "--run_name",
         type=str,
         default=None,
         help="Custom name of the run. Note that all runs are saved in the 'models' directory and have the training time prefixed.",
     )
+
     parser.add_argument(
         "--num_parallel_envs",
         type=int,
         default=12,
         help="Number of parallel environments while training",
     )
+
     parser.add_argument(
         "--num_test_episodes",
         type=int,
         default=5,
         help="Number of episodes to test the model",
     )
+
     parser.add_argument(
         "--record_test_episodes",
         action="store_true",
         help="Whether to record the test episodes or not. If false, the episodes are rendered in the window.",
     )
+
     parser.add_argument(
         "--total_timesteps",
         type=int,
         default=5_000_000,
         help="Number of timesteps to train the model for",
     )
+
     parser.add_argument(
         "--eval_frequency",
         type=int,
         default=10_000,
         help="The frequency of evaluating the models while training",
     )
+
     parser.add_argument(
         "--model_path",
         type=str,
         default=None,
         help="Path to the model (.zip). If passed for training, the model is used as the starting point for training. If passed for testing, the model is used for inference.",
     )
+
     parser.add_argument(
         "--ctrl_type",
         type=str,
@@ -210,6 +249,7 @@ if __name__ == "__main__":
         default="position",
         help="Whether the model should control the robot using torque or position control.",
     )
+
     parser.add_argument("--seed", type=int, default=0)
     
     
@@ -227,3 +267,9 @@ if __name__ == "__main__":
 
 
 # python github_train.py --run train
+
+# python github_train.py --run test --model_path models/2025-01-22_10-26-15/final_model.zip
+
+# provare in torque e vedere se impara
+# tensorboard (display lunghezza da orgine)
+# sostituire xml con quello di managerie e vedere se va ancora

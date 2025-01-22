@@ -148,9 +148,11 @@ class Go1MujocoEnv(MujocoEnv):
 
         observation = self._get_obs()
         reward, reward_info = self._calc_reward(action)
+
         # TODO: Consider terminating if knees touch the ground
         terminated = not self.is_healthy
         truncated = self._step >= (self._max_episode_time_sec / self.dt)
+        
         info = {
             "x_position": self.data.qpos[0],
             "y_position": self.data.qpos[1],
