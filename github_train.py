@@ -268,8 +268,11 @@ if __name__ == "__main__":
 
 # python github_train.py --run train
 
-# python github_train.py --run test --model_path models/2025-01-22_10-26-15/final_model.zip
+# python github_train.py --run test --model_path models/2025-01-29_17-53-14/best_model.zip
 
 # provare in torque e vedere se impara
 # tensorboard (display lunghezza da orgine)
 # sostituire xml con quello di managerie e vedere se va ancora
+        
+
+# Note: attenzione a funzione: _set_action_space in mujoco_env.py!
