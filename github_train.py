@@ -20,6 +20,29 @@ LOG_DIR = "logs"
 from stable_baselines3.common.callbacks import BaseCallback
 
 
+
+
+class TensorboardCallback(BaseCallback):
+    def __init__(self, verbose=1):
+        super(TensorboardCallback, self).__init__(verbose)
+
+    def _on_step(self) -> bool:
+        infos = self.locals["infos"]
+        for info in infos:
+            self.logger.record("env/linear_vel_tracking_reward", info.get("linear_vel_tracking_reward", 0))
+            self.logger.record("env/angular_vel_tracking_reward", info.get("angular_vel_tracking_reward", 0))
+            self.logger.record("env/feet_air_time_reward", info.get("feet_air_time_reward", 0))
+            self.logger.record("env/reward_ctrl", info.get("reward_ctrl", 0))
+            self.logger.record("env/action_rate_cost", info.get("action_rate_cost", 0))
+            self.logger.record("env/vertical_vel_cost", info.get("vertical_vel_cost", 0)) 
+            self.logger.record("env/xy_angular_vel_cost", info.get("xy_angular_vel_cost", 0)) 
+            self.logger.record("env/joint_limit_cost", info.get("joint_limit_cost", 0))
+            self.logger.record("env/joint_acceleration_cost", info.get("joint_acceleration_cost", 0))
+            self.logger.record("env/orientation_cost", info.get("orientation_cost", 0)) 
+            self.logger.record("env/default_joint_position_cost", info.get("default_joint_position_cost", 0)) 
+        return True    
+    
+
 class VisualizeCallback(BaseCallback):
     def __init__(self, check_freq, verbose=1):
         super(VisualizeCallback, self).__init__(verbose)
@@ -69,6 +92,10 @@ class VisualizeCallback(BaseCallback):
 
 def train(args):
 
+    # # set max steps per episode
+    # from gymnasium.wrappers import TimeLimit
+    # env = make_vec_env(lambda: TimeLimit(Go1MujocoEnv(render_mode=None), max_episode_steps=1000), n_envs=1)
+
     vec_env = make_vec_env(
         Go1MujocoEnv,
         env_kwargs={"ctrl_type": args.ctrl_type},
@@ -77,8 +104,14 @@ def train(args):
         vec_env_cls=SubprocVecEnv,
     )
 
+    training_name = "rew_uu_len_uu_net_64_64_normal_action"
+
+    # train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
+    # run_name = f"{train_time}-{args.run_name}" if args.run_name else train_time
+
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
-    run_name = f"{train_time}-{args.run_name}" if args.run_name else train_time
+    run_name = training_name
+
     model_path = f"{MODEL_DIR}/{run_name}"
 
     print(f"Training on {args.num_parallel_envs} parallel training environments and saving models to '{model_path}'")
@@ -93,15 +126,17 @@ def train(args):
         render=False,
     )
 
+    tensorboard_callback = TensorboardCallback()
+
     if args.model_path is not None:
         model = PPO.load(path=args.model_path, env=vec_env, verbose=1, tensorboard_log=LOG_DIR)
     else:
-        model = PPO("MlpPolicy", vec_env, verbose=1, tensorboard_log=LOG_DIR)
+        model = PPO("MlpPolicy", vec_env, verbose=1, learning_rate=3e-4, policy_kwargs=dict(net_arch=[64, 64]), tensorboard_log=LOG_DIR)
 
     visualize_callback = VisualizeCallback(check_freq=5000)
 
     # Combine callbacks
-    callbacks = [eval_callback, visualize_callback]
+    callbacks = [eval_callback, visualize_callback, tensorboard_callback]
 
     model.learn(
         total_timesteps=args.total_timesteps,
@@ -138,9 +173,7 @@ def test(args):
             width=1920,
             height=1080,
         )
-        env = gym.wrappers.RecordVideo(
-            env, video_folder="recordings/", name_prefix=model_path.parent.name
-        )
+        env = gym.wrappers.RecordVideo(env, video_folder="recordings/", name_prefix=model_path.parent.name)
         inter_frame_sleep = 0.0
 
     model = PPO.load(path=model_path, env=env, verbose=1)
@@ -148,6 +181,10 @@ def test(args):
     num_episodes = args.num_test_episodes
     total_reward = 0
     total_length = 0
+
+    # user commands
+    lin_x_range = [0.5, 4.0]
+    n_steps_full_cycle = 600
 
     for _ in tqdm(range(num_episodes)):
 
@@ -158,8 +195,14 @@ def test(args):
 
         while True:
             
+            # lin_x = lin_x_range[0] + (lin_x_range[1] - lin_x_range[0]) * (np.sin(2.0 * np.pi * ep_len / n_steps_full_cycle) + 1.0) / 2.0
+            # lin_x = float(lin_x)
+            # env._desired_velocity = np.array([lin_x, 0.0, 0.0])
+
             action, _ = model.predict(obs)
+
             obs, reward, terminated, truncated, info = env.step(action)
+
             env.render()
 
             # print("distance_from_origin", np.linalg.norm(env.data.qpos[0:2], ord=2))
@@ -168,11 +211,20 @@ def test(args):
             ep_len += 1
 
             # # Slow down the rendering
-            # time.sleep(inter_frame_sleep)
+            time.sleep(inter_frame_sleep)
 
             if terminated or truncated:
                 print(f"{ep_len=}  {ep_reward=}")
                 break
+            
+            # # monitor reference tracking
+            # velocity = env.data.qvel.flatten()
+            # base_lin_vel = velocity[:3]
+            # base_ang_vel = velocity[3:6]
+
+            # print(base_lin_vel[0], env._desired_velocity[0], 
+            #       base_lin_vel[1], env._desired_velocity[1],
+            #       base_ang_vel[2], env._desired_velocity[2])
 
         total_length += ep_len
         total_reward += ep_reward
@@ -276,3 +328,7 @@ if __name__ == "__main__":
         
 
 # Note: attenzione a funzione: _set_action_space in mujoco_env.py!
+        
+
+# python github_train.py --run test --model_path models/rew_1400_len_570_net_64_64_normal_action/best_model.zip
+# python github_train.py --run test --model_path models/rew_2000_len_750_net_64_64_normal_action/best_model.zip
