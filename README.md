@@ -1,4 +1,5 @@
-# To create virt env where to install all the necessary (must be in locomotion-po)
+# To create virt env 
+It is where to install all the necessary (must be in locomotion-po)
 python3.12 -m venv venv
 source venv/bin/activate
 pip3 install -r requirements.txt (just this)
