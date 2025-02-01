@@ -51,8 +51,8 @@ class Go1MujocoEnv(MujocoEnv):
 
         # Weights for the reward and cost functions
         self.reward_weights = {
-            "linear_vel_tracking": 2.0,  
-            "angular_vel_tracking": 2.5, 
+            "linear_vel_tracking": 4.0,  # 2.0
+            "angular_vel_tracking": 4.5, # 2.0
             "healthy": 0.5,  
             "feet_airtime": 1.0,
         }
@@ -83,9 +83,6 @@ class Go1MujocoEnv(MujocoEnv):
         self._lin_vel_x_range = np.array([-1.0, 2.0])
         self._lin_vel_y_range = np.array([-0.5, 0.5])
         self._ang_vel_range = np.array([-0.6, 0.6])
-        # self._lin_vel_x_range = np.array([0.5, 2.0])
-        # self._lin_vel_y_range = np.array([0.0, 0.0])
-        # self._ang_vel_range = np.array([0.0, 0.0])
         # Sample a new desired velocity
         self._desired_velocity = self._sample_desired_vel_reset()
 
@@ -150,7 +147,7 @@ class Go1MujocoEnv(MujocoEnv):
         if (self.is_training and self._step > 100):
             self._desired_velocity = self._sample_desired_vel_episode()
 
-        # a_tot = a_default + a_NN
+        # a_tot = a_default + a_NN (need to change also function _set_action_space() in mujoco_env.py
         action_total = self._default_joint_position + action
 
         # do simulation step

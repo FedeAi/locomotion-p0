@@ -91,7 +91,7 @@ def train(args):
     )
 
     # name the model
-    training_name = "rew_uu_len_uu_net_64_64_delta_action_joystick"
+    training_name = "rew_uuu_len_uuu_net_64_64_delta_action_joystick"
     run_name = training_name
 
     # train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -192,9 +192,9 @@ def test(args):
             f"{base_lin_vel[1]:.2f} {env._desired_velocity[1]:.2f} "
             f"{base_ang_vel[2]:.2f} {env._desired_velocity[2]:.2f}")
 
-            lin_x = lin_x_range[0] + (lin_x_range[1] - lin_x_range[0]) * (np.sin(2.0 * np.pi * ep_len / n_steps_full_cycle - np.pi / 2) + 1.0) / 2.0
-            lin_x = float(lin_x)
-            # lin_x = 0.5
+            # lin_x = lin_x_range[0] + (lin_x_range[1] - lin_x_range[0]) * (np.sin(2.0 * np.pi * ep_len / n_steps_full_cycle - np.pi / 2) + 1.0) / 2.0
+            # lin_x = float(lin_x)
+            lin_x = 0.5
 
             env._desired_velocity = np.array([lin_x, 0.0, 0.0])
 
@@ -306,4 +306,4 @@ if __name__ == "__main__":
 
 # python GO1_train.py --run train
 
-# python GO1_train.py --run test --model_path ../models/rew_700_len_450_net_64_128_64_delta_action_joystick/best_model.zip
+# python GO1_train.py --run test --model_path ../models/rew_800_len_500_net_64_64_delta_action_joystick/best_model.zip
