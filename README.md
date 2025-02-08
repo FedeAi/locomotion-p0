@@ -125,19 +125,19 @@ Where:
 The robot is encouraged to maintain a desired height as specified by the commanded altitude. A penalty is applied for deviations from this target height:
 
 $$
-R_{z} = (z - z_{ref})^2
+P_{z} = (z - z_{ref})^2
 $$
 
 Where:
 - $z$ is the current base height.
 - $z_{ref}$ is the target height specified in the commands.
 
-#### 4. **Pose Similarity Reward**
+#### 4. **Pose Deviation Penalty**
 
 To keep the robot's joint poses close to a default configuration, a penalty is applied for large deviations from the default joint positions:
 
 ```math
-R_{pose\_similarity} = \|q - q_{default}\|^2
+P_{pose\_similarity} = \|q - q_{default}\|^2
 ```
 
 Where:
@@ -149,7 +149,7 @@ Where:
 To ensure smooth control and discourage abrupt changes in actions, a penalty is applied based on the difference between consecutive actions:
 
 ```math
-R_{action\_rate} = \|a_{t} - a_{t-1}\|^2
+P_{action\_rate} = \|a_{t} - a_{t-1}\|^2
 ```
 
 Where:
@@ -157,10 +157,10 @@ Where:
 
 #### 6. **Vertical Velocity Penalty**
 
-To discourage unnecessary movement along the vertical ($z$) axis, a penalty is applied to the squared $z$-axis velocity of the base when the robot is not actively jumping. The reward is:
+To discourage unnecessary movement along the vertical ($z$) axis, a penalty is applied to the squared $z$-axis velocity of the base when the robot is not actively jumping. The penalty is:
 
 ```math
-R_{lin\_vel\_z} = v_{z}^2
+P_{lin\_vel\_z} = v_{z}^2
 ```
 
 Where:
@@ -168,10 +168,10 @@ Where:
 
 #### 7. **Roll and Pitch Stabilization Penalty**
 
-To ensure the robot maintains stability, a penalty is applied to discourage large roll and pitch deviations of the base. This reward is:
+To ensure the robot maintains stability, a penalty is applied to discourage large roll and pitch deviations of the base. This penalty is:
 
 ```math
-R_{roll\_pitch} = roll^2 + pitch^2
+P_{roll\_pitch} = roll^2 + pitch^2
 ```
 
 Where:
