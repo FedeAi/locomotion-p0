@@ -4,7 +4,7 @@
     <img src="./images/sim.gif" alt="Global Trajectory" style="width:80%; height:auto;">
 </div><br>
 
-Mobile robotics has reached a huge turning point. Thanks to the development and improvment of parallel computation and deep learning, robots are now able to learn complex tasks such as walking, running and jumping. The applications are endless, such as: ispection, search-and-rescue missions, entertainment and even healthcare.
+Mobile robotics has reached a huge turning point. Thanks to the development and improvment of parallel computation and deep learning, robots are now able to learn complex tasks such as walking, running and jumping. The applications are endless, such as: inspection, search-and-rescue missions, entertainment and even healthcare.
 
 >**Tasks that were once considered impossible for robots are now within reach, and the possibilities are endless. It's just a matter of time before we see robots performing tasks that were once only possible in science fiction.**
 
@@ -113,31 +113,31 @@ Where:
 The robot is encouraged to track $w_z$ reference commanded by the user.
 
 ```math
-R_{ang\_vel} = \exp[-(w^{ref}_{z} - w_{z})^2]
+R_{ang\_vel} = \exp[-(w^{cmd}_{z} - w^{base}_{z})^2]
 ```
 
 Where:
-- $w_{cmd,z}$ is the commanded yaw velocity.
-- $w_{base,z}$ is the actual yaw velocity.
+- $w^{cmd}_{z}$ is the commanded yaw velocity.
+- $w^{base}_{z}$ is the actual yaw velocity.
 
 #### 3. **Height Penalty**
 
 The robot is encouraged to maintain a desired height as specified by the commanded altitude. A penalty is applied for deviations from this target height:
 
 $$
-R_{z} = (z - z_{ref})^2
+P_{z} = (z - z_{ref})^2
 $$
 
 Where:
 - $z$ is the current base height.
 - $z_{ref}$ is the target height specified in the commands.
 
-#### 4. **Pose Similarity Reward**
+#### 4. **Pose Deviation Penalty**
 
 To keep the robot's joint poses close to a default configuration, a penalty is applied for large deviations from the default joint positions:
 
 ```math
-R_{pose\_similarity} = \|q - q_{default}\|^2
+P_{pose\_similarity} = \|q - q_{default}\|^2
 ```
 
 Where:
@@ -149,7 +149,7 @@ Where:
 To ensure smooth control and discourage abrupt changes in actions, a penalty is applied based on the difference between consecutive actions:
 
 ```math
-R_{action\_rate} = \|a_{t} - a_{t-1}\|^2
+P_{action\_rate} = \|a_{t} - a_{t-1}\|^2
 ```
 
 Where:
@@ -157,10 +157,10 @@ Where:
 
 #### 6. **Vertical Velocity Penalty**
 
-To discourage unnecessary movement along the vertical ($z$) axis, a penalty is applied to the squared $z$-axis velocity of the base when the robot is not actively jumping. The reward is:
+To discourage unnecessary movement along the vertical ($z$) axis, a penalty is applied to the squared $z$-axis velocity of the base when the robot is not actively jumping. The penalty is:
 
 ```math
-R_{lin\_vel\_z} = v_{z}^2
+P_{lin\_vel\_z} = v_{z}^2
 ```
 
 Where:
@@ -168,10 +168,10 @@ Where:
 
 #### 7. **Roll and Pitch Stabilization Penalty**
 
-To ensure the robot maintains stability, a penalty is applied to discourage large roll and pitch deviations of the base. This reward is:
+To ensure the robot maintains stability, a penalty is applied to discourage large roll and pitch deviations of the base. This penalty is:
 
 ```math
-R_{roll\_pitch} = roll^2 + pitch^2
+P_{roll\_pitch} = roll^2 + pitch^2
 ```
 
 Where:
@@ -186,9 +186,9 @@ This design ensures that the robot learns a balanced policy that prioritizes tra
 
 During training, episodes are terminated when specific criteria are met to ensure the robot remains in a healthy and functional state. The termination conditions include:
 
-- $| \textit{roll} | > \textit{roll}_{\textit{min}}$: Robot roll is below a certain threshold.  
-- $| \textit{pitch} | > \textit{pitch}_{\textit{min}}$: Robot pitch is below a certain threshold.  
-- $z < z_{\textit{min}}$: Robot altitude is above a minimum value.
+- $| \textit{roll} | > \textit{roll}_{\textit{max}}$: Robot roll is above a certain threshold.
+- $| \textit{pitch} | > \textit{pitch}_{\textit{max}}$: Robot pitch is above a certain threshold.
+- $z < z_{\textit{min}}$: Robot altitude is below a minimum value.
 - steps ≥ max_steps: Maximum number of steps reached.
 
 Here is an implementation for checking whether the robot is in a healthy state:
