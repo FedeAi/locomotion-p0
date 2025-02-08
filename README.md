@@ -4,7 +4,7 @@
     <img src="./images/sim.gif" alt="Global Trajectory" style="width:80%; height:auto;">
 </div><br>
 
-Mobile robotics has reached a huge turning point. Thanks to the development and improvment of parallel computation and deep learning, robots are now able to learn complex tasks such as walking, running and jumping. The applications are endless, such as: ispection, search-and-rescue missions, entertainment and even healthcare.
+Mobile robotics has reached a huge turning point. Thanks to the development and improvment of parallel computation and deep learning, robots are now able to learn complex tasks such as walking, running and jumping. The applications are endless, such as: inspection, search-and-rescue missions, entertainment and even healthcare.
 
 >**Tasks that were once considered impossible for robots are now within reach, and the possibilities are endless. It's just a matter of time before we see robots performing tasks that were once only possible in science fiction.**
 
