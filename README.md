@@ -113,12 +113,12 @@ Where:
 The robot is encouraged to track $w_z$ reference commanded by the user.
 
 ```math
-R_{ang\_vel} = \exp[-(w^{ref}_{z} - w_{z})^2]
+R_{ang\_vel} = \exp[-(w^{cmd}_{z} - w^{base}_{z})^2]
 ```
 
 Where:
-- $w_{cmd,z}$ is the commanded yaw velocity.
-- $w_{base,z}$ is the actual yaw velocity.
+- $w^{cmd}_{z}$ is the commanded yaw velocity.
+- $w^{base}_{z}$ is the actual yaw velocity.
 
 #### 3. **Height Penalty**
 
