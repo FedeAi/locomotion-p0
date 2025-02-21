@@ -152,9 +152,11 @@ def main():
     parser.add_argument("-e", "--exp_name", type=str, default="go2-walking")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
     parser.add_argument("--max_iterations", type=int, default=10000)
+    parser.add_argument("--device", type=str, default="cuda:0", help="device to use: 'cpu' or 'cuda:0'")
     args = parser.parse_args()
 
-    gs.init(logging_level="warning")
+    backend = gs.constants.backend.gpu if args.device.lower() == "cuda:0" else gs.constants.backend.cpu
+    gs.init(logging_level="warning", backend=backend)
 
     log_dir = f"logs/{args.exp_name}"
     env_cfg, obs_cfg, reward_cfg, command_cfg = get_cfgs()
@@ -165,10 +167,15 @@ def main():
     os.makedirs(log_dir, exist_ok=True)
 
     env = Go2Env(
-        num_envs=args.num_envs, env_cfg=env_cfg, obs_cfg=obs_cfg, reward_cfg=reward_cfg, command_cfg=command_cfg
+        num_envs=args.num_envs,
+        env_cfg=env_cfg,
+        obs_cfg=obs_cfg,
+        reward_cfg=reward_cfg,
+        command_cfg=command_cfg,
+        device=args.device,
     )
 
-    runner = OnPolicyRunner(env, train_cfg, log_dir, device="cuda:0")
+    runner = OnPolicyRunner(env, train_cfg, log_dir, device=args.device)
 
     pickle.dump(
         [env_cfg, obs_cfg, reward_cfg, command_cfg, train_cfg],
